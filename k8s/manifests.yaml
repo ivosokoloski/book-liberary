@@ -1,0 +1,210 @@
+# 1. NAMESPACE (10%)
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: book-library-ns
+---
+# 2. CONFIGMAP ЗА НЕЧУВСТВИТЕЛНИ ВАРИЈАБЛИ
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: app-config
+  namespace: book-library-ns
+data:
+  POSTGRES_DB: "bookdb"
+  SPRING_DATASOURCE_URL: "jdbc:postgresql://postgres-service:5432/bookdb"
+---
+# 3. SECRET ЗА ЧУВСТВИТЕЛНИ ПОДАТОЦИ (Secrets / Passwords)
+apiVersion: v1
+kind: Secret
+metadata:
+  name: app-secrets
+  namespace: book-library-ns
+type: Opaque
+stringData:
+  POSTGRES_USER: "postgres"
+  POSTGRES_PASSWORD: "postgrespassword"
+  JWT_SECRET_KEY: "7ac51f34954d17b2c22a1a95ea44f1f61c72a0b87d186c8e2c607edb4db99ffd"
+---
+# 4. STATEFULSET ЗА POSTGRESQL БАЗАТА (10%)
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: postgres-db
+  namespace: book-library-ns
+spec:
+  serviceName: "postgres-service"
+  replicas: 1
+  selector:
+    matchLabels:
+      app: postgres-db
+  template:
+    metadata:
+      labels:
+        app: postgres-db
+    spec:
+      containers:
+        - name: postgres
+          image: postgres:15-alpine
+          ports:
+            - containerPort: 5432
+          env:
+            - name: POSTGRES_DB
+              valueFrom:
+                configMapKeyRef:
+                  name: app-config
+                  key: POSTGRES_DB
+            - name: POSTGRES_USER
+              valueFrom:
+                secretKeyRef:
+                  name: app-secrets
+                  key: POSTGRES_USER
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: app-secrets
+                  key: POSTGRES_PASSWORD
+          volumeMounts:
+            - name: postgres-storage
+              mountPath: /var/lib/postgresql/data
+  volumeClaimTemplates:
+    - metadata:
+        name: postgres-storage
+      spec:
+        accessModes: [ "ReadWriteOnce" ]
+        resources:
+          requests:
+            storage: 1Gi
+---
+# SERVICE ЗА POSTGRES
+apiVersion: v1
+kind: Service
+metadata:
+  name: postgres-service
+  namespace: book-library-ns
+spec:
+  ports:
+    - port: 5432
+      targetPort: 5432
+  selector:
+    app: postgres-db
+  type: ClusterIP
+---
+# 5. DEPLOYMENT ЗА BACKEND (10%)
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: backend-deployment
+  namespace: book-library-ns
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: backend
+  template:
+    metadata:
+      labels:
+        app: backend
+    spec:
+      containers:
+        - name: backend
+          image: ivosokoloski4/book-library-backend:latest
+          ports:
+            - containerPort: 8080
+          env:
+            - name: SPRING_DATASOURCE_URL
+              valueFrom:
+                configMapKeyRef:
+                  name: app-config
+                  key: SPRING_DATASOURCE_URL
+            - name: SPRING_DATASOURCE_USERNAME
+              valueFrom:
+                secretKeyRef:
+                  name: app-secrets
+                  key: POSTGRES_USER
+            - name: SPRING_DATASOURCE_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: app-secrets
+                  key: POSTGRES_PASSWORD
+            - name: JWT_SECRET_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: app-secrets
+                  key: JWT_SECRET_KEY
+---
+# SERVICE ЗА BACKEND (10%)
+apiVersion: v1
+kind: Service
+metadata:
+  name: backend-service
+  namespace: book-library-ns
+spec:
+  ports:
+    - port: 8080
+      targetPort: 8080
+  selector:
+    app: backend
+  type: ClusterIP
+---
+# 6. DEPLOYMENT ЗА FRONTEND (10%)
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: frontend-deployment
+  namespace: book-library-ns
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: frontend
+  template:
+    metadata:
+      labels:
+        app: frontend
+    spec:
+      containers:
+        - name: frontend
+          image: ivosokoloski4/book-library-frontend:latest
+          ports:
+            - containerPort: 80
+---
+# SERVICE ЗА FRONTEND (10%)
+apiVersion: v1
+kind: Service
+metadata:
+  name: frontend-service
+  namespace: book-library-ns
+spec:
+  ports:
+    - port: 80
+      targetPort: 80
+  selector:
+    app: frontend
+  type: ClusterIP
+---
+# 7. INGRESS ЗА АПЛИКАЦИЈАТА (10%)
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: book-library-ingress
+  namespace: book-library-ns
+spec:
+  rules:
+    - host: book-library.local
+      http:
+        paths:
+          - path: /api
+            pathType: Prefix
+            backend:
+              service:
+                name: backend-service
+                port:
+                  number: 8080
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: frontend-service
+                port:
+                  number: 80
