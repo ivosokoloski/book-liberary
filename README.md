@@ -201,6 +201,5 @@ book-library/
 ## 👨‍💻 Author
 
 **Иво Соколоски (Ivo Sokoloski)**  
-* Index: 213153  
+* Index:   233229
 * Faculty of Computer Science and Engineering (FINKI) - Skopje  
-* GitHub: https://github.com/IvoSokoloski
